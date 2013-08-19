@@ -1,0 +1,202 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html lang="en">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=7" />
+        <title>Descriptive Tile Analysis</title>
+        <script type="text/javascript" src="http://o.aolcdn.com/dojo/1.5/dojo/dojo.xd.js" ></script> 
+		<link rel="stylesheet" type="text/css" media="all" href="./AppFiles/viewer.css" />
+		<link rel="stylesheet" type="text/css" href="http://serverapi.arcgisonline.com/jsapi/arcgis/2.1/js/dojo/dijit/themes/tundra/tundra.css">
+		<script type="text/javascript">  var djConfig = {parseOnLoad: true}; </script>
+        <script src="http://serverapi.arcgisonline.com/jsapi/arcgis/?v=2.1" type="text/javascript"></script>
+		<script type="text/javascript" src="./AppFiles/Config.js"></script>
+        <script type="text/javascript" charset="utf-8">
+        	
+                  dojo.require("dojo.parser");
+				  dojo.require("dojo.io.script");
+				  dojo.require("dijit.layout.BorderContainer");
+				  dojo.require("dijit.layout.ContentPane");
+				  dojo.require("dijit.layout.AccordionContainer");
+				  dojo.require("dijit.form.ComboBox");
+				  dojo.require("dijit.TooltipDialog");
+				  dojo.require("dojo.data.ItemFileReadStore");
+				  dojo.require("esri.map");
+				  dojo.require("esri.tasks.query");
+				  dojo.require("esri.layers.FeatureLayer");				  
+				  dojo.require("esri.dijit.editing.TemplatePicker-all");
+				      			              
+                  var map, featureLayer;
+				  // config.js variables
+				  var streetmapService,tilelevelStr,tiletrackingStr,spRef;
+				  var legendTitleclassBreak1,classBreak2,classBreak3,classSymbol1,classSymbol2,classSymbol3,patchSize;
+				  var levelField;
+				  var breakField,break1Min,break1Max,break2Min,break2Max,break3Min,break3Max,break1Sym,break2Sym,break3Sym,defExpression;
+				  var infoContent;
+				  var appTitle;
+				  var appFolder = "./AppFiles/";
+				  var startExtent;
+				  // run the config.js function to set the machine-specific services and related properties
+  				  setConfigProperties();
+				  				  	  				  				  				  
+                  function init() {
+                  	map = new esri.Map("map", {
+                      extent: startExtent,
+                      slider: false
+                    });
+					dojo.connect(map, "onLoad", function(map){
+						dojo.connect(dijit.byId('map'), 'resize', function() {// resize map when browser is resized
+							resizeMap();
+						});
+					});
+					dojo.connect(map, "onLoad", function() {
+			          //listen for when map.graphics onMouseOut event is fired and then clear the highlight graphic
+			          //and hide the info window
+			          dojo.connect(map.graphics, "onMouseOut", function(evt) {
+			            map.graphics.clear();
+						map.infoWindow.hide();
+						closeDialog();			            
+			          });
+			        })
+					dojo.connect(map, "onLoad", initOperationalLayer)
+					
+					var hitSymbols = [];
+					//Legend Labels and Legend Symbology go here... if you need more than three add to the bottom of this list 
+					//and add additional items to the config.js
+        			hitSymbols.push({label: classBreak1,symbol: new esri.symbol.SimpleLineSymbol().setStyle(esri.symbol.SimpleLineSymbol.STYLE_SOLID).setColor(new dojo.Color(classSymbol1)).setWidth(patchSize)});
+        			hitSymbols.push({label: classBreak2,symbol: new esri.symbol.SimpleLineSymbol().setStyle(esri.symbol.SimpleLineSymbol.STYLE_SOLID).setColor(new dojo.Color(classSymbol2)).setWidth(patchSize)});
+       				hitSymbols.push({label: classBreak3,symbol: new esri.symbol.SimpleLineSymbol().setStyle(esri.symbol.SimpleLineSymbol.STYLE_SOLID).setColor(new dojo.Color(classSymbol3)).setWidth(patchSize)});
+										
+					
+					//**** The space above is provided for more legend items if needed****
+					
+					var	legend = new esri.dijit.editing.TemplatePicker({
+						items: hitSymbols,
+						rows: 1,
+						columns: 3
+						}, "legendDiv");
+					legend.startup(); 
+					
+					map.addLayer(new esri.layers.ArcGISTiledMapServiceLayer(streetmapService));
+					
+					//populate drop-down list with unique Level names
+					var levelList = new esri.layers.FeatureLayer(tilelevelStr,{
+    					mode:esri.layers.FeatureLayer.MODE_SELECTION
+					});					
+					
+					var query = new esri.tasks.Query();
+					query.where = "1=1";
+					levelList.queryFeatures(query,function(featureSet){
+ 						var values = dojo.map(featureSet.features,function(feature){
+  							return {name:'Level ' + feature.attributes.LevelID};
+						});
+						
+						var dataItems = {
+       						identifier: 'name',
+       						label: 'name',
+       						items: values
+						};
+						var store = new dojo.data.ItemFileReadStore({data:dataItems});
+						dijit.byId("mySelect").store = store;
+					});					
+				  }
+				  
+				 function selectLevel(item){
+				 	if (featureLayer !== "undefined") {
+						map.removeLayer(featureLayer);
+					}
+					closeDialog();
+				 	var query = new esri.tasks.Query();
+        			query.where = levelField + " = '" + item.value + "'";
+        			featureLayer.selectFeatures(query,esri.layers.FeatureLayer.SELECTION_NEW);
+					var levelID = item.value;
+					initOperationalLayer("'" + levelID.replace("Level ","") + "'");
+      			}
+				
+                  function initOperationalLayer(theScaleLevel) {
+                    var symbol = new esri.symbol.SimpleFillSymbol();
+                    symbol.setColor(new dojo.Color([150, 150, 150, 0.5]));
+            
+                    var renderer = new esri.renderer.ClassBreaksRenderer(symbol, breakField);
+					//Class Breaks and the color scheme go here... if you need more than three add to the bottom of this list 
+					//and add additional items to the config.js
+                    renderer.addBreak(break1Min, break1Max, new esri.symbol.SimpleFillSymbol(esri.symbol.SimpleFillSymbol.STYLE_SOLID, new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_NULL, new dojo.Color([255,0,0]), 2), new dojo.Color(break1Sym)));
+                    renderer.addBreak(break2Min, break2Max, new esri.symbol.SimpleFillSymbol(esri.symbol.SimpleFillSymbol.STYLE_SOLID, new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_NULL, new dojo.Color([255,0,0]), 2), new dojo.Color(break2Sym)));
+                    renderer.addBreak(break3Min, break3Max, new esri.symbol.SimpleFillSymbol(esri.symbol.SimpleFillSymbol.STYLE_SOLID, new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_NULL, new dojo.Color([255,0,0]), 2), new dojo.Color(break3Sym)));
+                    														           
+                    
+					//**** The space above is provided for more class breaks if needed****
+					
+					featureLayer = new esri.layers.FeatureLayer(tiletrackingStr, {
+                      mode: esri.layers.FeatureLayer.MODE_ONDEMAND, 
+					  outFields: ["*"]
+					});
+					if (theScaleLevel != null) {
+						featureLayer.setDefinitionExpression(defExpression + theScaleLevel);
+						featureLayer.setRenderer(renderer);
+					map.addLayer(featureLayer);	
+					}
+					
+					var infoTemplate = new esri.InfoTemplate();
+					infoTemplate.setContent(infoContent);
+					map.infoWindow.resize(245,125);
+					var highlightSymbol = new esri.symbol.SimpleFillSymbol().setColor(new dojo.Color([0,255,255,0.35]));
+					highlightSymbol.setOutline(new esri.symbol.SimpleLineSymbol("dashdot", new dojo.Color([0,0,255]),2));
+					//listen for when the onMouseOver event fires on the countiesGraphicsLayer
+        			//when fired, create a new graphic with the geometry from the event.graphic and add it to the maps graphics layer
+					dojo.connect(featureLayer, "onMouseOver", function(evt) {
+			        closeDialog();
+			          map.graphics.clear();
+			          evt.graphic.setInfoTemplate(infoTemplate);
+			          var content = evt.graphic.getContent();
+			          var highlightGraphic = new esri.Graphic(evt.graphic.geometry,highlightSymbol);
+					  map.graphics.add(highlightGraphic);
+				  	  var dialog = new dijit.TooltipDialog({
+		          	   id: "tooltipDialog",
+		          	   content:  content,
+		          	   style: "position: absolute; width: 250px; font: normal 10pt Helvetica;z-index:100"
+		          	  });
+			          dialog.startup();
+					  dojo.style(dialog.domNode, "opacity", 0.85);
+			          dijit.placeOnScreen(dialog.domNode, {x: evt.pageX, y: evt.pageY}, ["TL", "BL"], {x: 10, y: 10});
+			        });											  
+                 }
+				 
+				function closeDialog() {
+			        var widget = dijit.byId("tooltipDialog");
+			        if (widget) {
+			          widget.destroy();
+			        }
+			      }
+				 
+		      	 function resizeMap(){
+		       	   //resize the map when the browser resizes - view the 'Resizing and repositioning the map' section in
+		           //the following help topic for more details http://help.esri.com/EN/webapi/javascript/arcgis/help/jshelp_start.htm#jshelp/inside_guidelines.htm
+		           var resizeTimer;
+		           clearTimeout(resizeTimer);
+		           resizeTimer = setTimeout( function() {
+		           	 map.resize();
+		          	 map.reposition();
+		           }, 500);
+		       	}         
+           
+                  dojo.addOnLoad(init);                
+        </script>
+    </head>
+    <body>
+    	<div id="content" dojotype="dijit.layout.BorderContainer" design="headline" gutters="true" style="width: 100%; height: 100%;border:.5px double #000000;">
+    		<!-- Header and Title Container - Top Pane -->
+			<div id="header" dojotype="dijit.layout.ContentPane"region="top" class="dijitBorders" style="height:100px">
+		         <h2><script type="text/javascript">document.write(appTitle);</script></h2>
+				 <img src="images/logo.png" id="logo" style="position:absolute; right:0px;">
+				 <select id="mySelect" dojotype="dijit.form.ComboBox" style="width=350px;font-size:14px;font-family:Arial Rounded MT Bold;position:absolute;bottom:3px;left:3px;background-color:#FFFFFF" class="tundra" autoComplete="true" forceValidOption="false" value="Select a Scale Level" layoutAlign="bottom" onchange="selectLevel(this)" fetchProperties="{sort:[{attribute:'name', descending:false}]}"> </select>
+		    </div>
+			<!-- Map Container - Center Pane -->
+			<div id="map" dojotype="dijit.layout.ContentPane" region="center" class="dijitBorders"></div>
+			<!-- Legend Container - Left Pane -->
+			<div id="rightPane" dojotype="dijit.layout.ContentPane" region="right" class="dijitBorders" style="width: 25%; font-size:small;">
+        		<center><span class="labelText"><script type="text/javascript">document.write(legendTitle);</script></span></center>					
+            	<div id="legendDiv"></div>
+       		</div>	    	
+	 	</div>
+    </body>
+</html>
